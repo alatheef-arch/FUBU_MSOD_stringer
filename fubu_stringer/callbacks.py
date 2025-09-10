@@ -11,6 +11,7 @@ import pandas as pd
 from dash.dependencies import Input, Output, State
 
 from app import app
+from dash import callback
 from callbacks.callbacks_helpers import _load_df, _load_json_safe
 from data_processing.constants import stringer_columns
 from data_processing.data_transformer import (

@@ -1,11 +1,25 @@
-from io import StringIO
-import pandas as pd
-from dash import callback
-from dash.dependencies import Input, Output
+# fubu_stringer/callbacks.py
+"""Defines all callbacks for updating the stringer tab of the Dash application."""
 
-from data_processing.data_transformer import generate_merged_zone_styles, generate_zone_tooltips
+import json
+import traceback
+from io import StringIO
+from math import pi
+
+import dash
+import pandas as pd
+from dash.dependencies import Input, Output, State
+
+from app import app
+from callbacks.callbacks_helpers import _load_df, _load_json_safe
+from data_processing.constants import stringer_columns
+from data_processing.data_transformer import (
+    generate_merged_zone_styles,
+    generate_zone_tooltips,
+)
 
 STRINGER_PITCH_COLUMN_ID = "Stringer Pitch (mm)"
+
 
 @callback(
     [
@@ -15,13 +29,12 @@ STRINGER_PITCH_COLUMN_ID = "Stringer Pitch (mm)"
         Output("stringer-tab-final-zone-grid", "tooltip_data", allow_duplicate=True),
     ],
     [Input("main-data-store", "data"), Input("custom-panels-store", "data")],
-    prevent_initial_call=True
+    prevent_initial_call=True,
 )
 def update_stringer_final_zone_grid(main_data_json, stored_panels):
     """Updates the Final Zone Grid on the Stringer tab."""
     if not main_data_json:
         return [], [], [], []
-
     df_raw = pd.read_json(StringIO(main_data_json), orient="split")
     all_stringers = df_raw[STRINGER_PITCH_COLUMN_ID].unique()
     pivoted = df_raw.pivot_table(
@@ -32,18 +45,17 @@ def update_stringer_final_zone_grid(main_data_json, stored_panels):
         sort=False,
     )
     df_grid_display = pivoted.reindex(all_stringers).reset_index()
-
-    columns = [{"name": c if c != STRINGER_PITCH_COLUMN_ID else "", "id": c} for c in df_grid_display.columns]
-
+    columns = [
+        {"name": c if c != STRINGER_PITCH_COLUMN_ID else "", "id": c}
+        for c in df_grid_display.columns
+    ]
     grid_data_df = df_grid_display.copy()
     for col in grid_data_df.columns:
         if col != STRINGER_PITCH_COLUMN_ID:
             grid_data_df[col] = ""
-
     grid_data = grid_data_df.to_dict("records")
     tooltips = generate_zone_tooltips(main_data_json, stored_panels)
     styles = generate_merged_zone_styles(columns, stored_panels)
-
     if stored_panels:
         for panel in stored_panels:
             for coord in panel.get("coords", []):
@@ -86,9 +98,7 @@ def _calculate_stringer_weights(df, props, cs_lookup):
     else:
         df["Duck Feet"] = 0.0
 
-    cs_cm2 = (
-        pd.to_numeric(df["Stringer Cross Section (mm²)"], "coerce").fillna(0) / 100.0
-    )
+    cs_cm2 = pd.to_numeric(df["Stringer Cross Section (mm²)"], "coerce").fillna(0) / 100.0
     len_cm = pd.to_numeric(df["Frame Length (Pitch) (mm)"], "coerce").fillna(0) / 10.0
     df["Weight (g)"] = cs_cm2 * len_cm * g_dens
     return df
@@ -103,12 +113,11 @@ def _update_panels_with_stringer_weights(panels, df, props):
             if name in grouped.index:
                 p["total_stringer_weight"] = grouped.loc[name, "Weight (g)"]
                 p["total_duck_feet"] = grouped.loc[name, "Duck Feet"]
-            # FIX: This line was un-indented to ensure it runs for all panels.
             p["stringer_density"] = props.get("global_stringer_density", 0.0)
     return panels
 
 
-@app.callback(
+@callback(
     [
         Output("stringer-csv-table", "data"),
         Output("stringer-csv-table", "columns"),
@@ -130,30 +139,23 @@ def update_stringer_tab_table(panels, stringer_json, cs_lookup, props_json):
         df = _load_df(stringer_json)
         if df.empty:
             return [], [], dash.no_update, panels or []
-
         props = _load_json_safe(props_json)
         df = _calculate_stringer_weights(df, props, cs_lookup)
-
         df_for_display = df.rename(columns={"Duck Feet": "Duck Feet (kg)"})
         cols = stringer_columns
-        df_for_display = df_for_display[
-            [c for c in cols if c in df_for_display.columns]
-        ]
-
+        df_for_display = df_for_display[[c for c in cols if c in df_for_display.columns]]
         return (
             df_for_display.to_dict("records"),
             [{"name": i, "id": i} for i in df_for_display.columns],
             df.to_json(orient="split"),
             panels,
         )
-    # pylint: disable=broad-exception-caught
     except Exception:
         traceback.print_exc()
         return [], [], dash.no_update, panels or []
 
 
-# pylint: disable=too-many-arguments, too-many-positional-arguments
-@app.callback(
+@callback(
     [
         Output("global-props-status-output", "children", allow_duplicate=True),
         Output("stringer-data-store", "data", allow_duplicate=True),
@@ -191,15 +193,11 @@ def save_global_stringer_properties(
                 "global_strip_width": float(strip_w or 0),
             }
         )
-
         if not df.empty:
             df = _calculate_stringer_weights(df, props, {})
             props["total_stringers"] = len(df)
-            stringer_pitch = pd.to_numeric(
-                df.get("Stringer Pitch (mm)", 0), errors="coerce"
-            )
+            stringer_pitch = pd.to_numeric(df.get("Stringer Pitch (mm)", 0), errors="coerce")
             props["total_stringer_pitch"] = stringer_pitch.fillna(0).sum()
-
         panels = _update_panels_with_stringer_weights(
             [p.copy() for p in (panels or [])], df, props
         )
@@ -209,18 +207,18 @@ def save_global_stringer_properties(
             panels,
             json.dumps(props),
         )
-    # pylint: disable=broad-exception-caught
     except Exception as e:
         traceback.print_exc()
         return (html.P(f"Error: {e}", style={"color": "red"}), (dash.no_update,) * 3)
 
 
-@app.callback(
+@callback(
     [
         Output("zone-stringer-weight-summary-table", "data"),
         Output("zone-stringer-weight-summary-table", "columns"),
     ],
     [Input("stringer-data-store", "data")],
+    prevent_initial_call=True,
 )
 def update_zone_stringer_summary(stringer_json):
     """Saves stringer zone level summary information dynamically"""
@@ -241,5 +239,4 @@ def update_zone_stringer_summary(stringer_json):
     )
     for col in ["Total Stringer Weight (kg)", "Total Duck Feet (kg)"]:
         summary[col] = summary[col].apply(format_value_for_csv)
-
     return (summary.to_dict("records"), [{"name": i, "id": i} for i in summary.columns])

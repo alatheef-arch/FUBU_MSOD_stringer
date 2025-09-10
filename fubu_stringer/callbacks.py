@@ -8,16 +8,17 @@ from math import pi
 
 import dash
 import pandas as pd
+from dash import callback
 from dash.dependencies import Input, Output, State
 
 from app import app
-from dash import callback
 from callbacks.callbacks_helpers import _load_df, _load_json_safe
 from data_processing.constants import stringer_columns
 from data_processing.data_transformer import (
     generate_merged_zone_styles,
     generate_zone_tooltips,
 )
+from data_processing.helpers import format_value_for_csv
 
 STRINGER_PITCH_COLUMN_ID = "Stringer Pitch (mm)"
 
